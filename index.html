@@ -296,7 +296,7 @@ const ROUND_SIZE = 10;
 // ESTADO GLOBAL
 // ═══════════════════════════════════════════════════════
 let ac=null, instrument=null, currentPlaying=null, isInitializing=false;
-let sndCorrect=null, sndWrong=null; 
+let sndWrong=null; 
 let dryGain=null, reverbGain=null;
 let currentInstrument = 'soprano';
 
@@ -388,14 +388,12 @@ async function initAudio(){
       }
     });
 
-    const [inst, correct, wrong] = await Promise.all([
+    const [inst, wrong] = await Promise.all([
         Soundfont.instrument(fakeAc,'recorder'),
-        Soundfont.instrument(fakeAc,'xylophone'),
         Soundfont.instrument(fakeAc,'timpani')
     ]);
 
     instrument = inst;
-    sndCorrect = correct;
     sndWrong = wrong;
 
     statusEl.textContent='áudio pronto';
@@ -426,6 +424,26 @@ async function playNote(playbackNote){
   stopAllSounds();
   currentPlaying=instrument.play(playbackNote,ac.currentTime,{gain:1,duration:1.5});
   statusEl.textContent='a tocar';
+}
+
+// Som super rápido e suave para o clique em buracos (Bi-pe curto)
+function playHoleClick() {
+  try {
+    if(!ac || ac.state === 'suspended') return;
+    const osc = ac.createOscillator();
+    const gain = ac.createGain();
+    osc.connect(gain);
+    gain.connect(dryGain); 
+    
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(1200, ac.currentTime); // Tom agudo e limpo
+    
+    gain.gain.setValueAtTime(0.05, ac.currentTime); // Volume bem baixo
+    gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.05); // Muito curto (0.05s)
+    
+    osc.start(ac.currentTime);
+    osc.stop(ac.currentTime + 0.05);
+  } catch(e) {}
 }
 
 // ═══════════════════════════════════════════════════════
@@ -505,7 +523,7 @@ fluteBody.addEventListener('pointerdown', async (e) => {
     training.clickedHoles.add(id);
     holeEl.classList.add(expectedState === '1' ? 'closed' : 'half');
     
-    if (sndCorrect) sndCorrect.play('C6', ac.currentTime, {gain: 0.6});
+    playHoleClick(); // <-- Som de bipe curtinho
 
     // Checa se completou a nota
     if (training.clickedHoles.size === training.requiredHolesCount) {
@@ -575,8 +593,19 @@ function nextTrainingQuestion(){
   resetFluteVisuals();
   training.clickedHoles.clear();
 
+  // Gera uma nova lista completamente aleatória para a rodada
   if(training.queue.length===0){
-    training.queue = [...training.level.indices].sort(() => Math.random() - 0.5).slice(0, ROUND_SIZE);
+    const pool = training.level.indices;
+    let lastRnd = -1;
+    for(let i=0; i<ROUND_SIZE; i++){
+      let rnd = pool[Math.floor(Math.random() * pool.length)];
+      // Lógica simples para evitar que a mesma nota saia repetida na sequência direta (se houver mais de 1 nota no pool)
+      if(rnd === lastRnd && pool.length > 1) {
+         rnd = pool[(pool.indexOf(rnd) + 1) % pool.length];
+      }
+      training.queue.push(rnd);
+      lastRnd = rnd;
+    }
     training.roundCount=0;
   }
 
